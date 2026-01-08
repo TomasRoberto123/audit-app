@@ -751,7 +751,7 @@ function auditContracts(contracts, context) {
   return sections;
 }
 
-function generatePdf(sections, context, metadata) {
+async function generatePdf(sections, context, metadata) {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const margin = 72; // Aumentado de 60 para 72 para mais espaço nas margens
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -1593,7 +1593,7 @@ async function handleGenerate() {
     };
     
     setStatus("Relatório gerado com sucesso. A descarregar...");
-    generatePdf(sections, context, metadata);
+    await generatePdf(sections, context, metadata);
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Ocorreu um erro ao gerar o relatório.", true);
@@ -1659,9 +1659,9 @@ cancelPreviewBtn.addEventListener("click", () => {
   reportPreview.classList.add("hidden");
   previewData = null;
 });
-confirmGenerateBtn.addEventListener("click", () => {
+confirmGenerateBtn.addEventListener("click", async () => {
   if (previewData) {
-    generatePdf(previewData.sections, previewData.context, previewData.metadata);
+    await generatePdf(previewData.sections, previewData.context, previewData.metadata);
     reportPreview.classList.add("hidden");
     previewData = null;
   }
@@ -2077,7 +2077,7 @@ window.downloadHistoryAudit = async function (id) {
   }
   
   const { sections, context, metadata } = result.audit.data;
-  generatePdf(sections, context, metadata);
+  await generatePdf(sections, context, metadata);
 };
 
 window.deleteHistoryAudit = async function (id) {
