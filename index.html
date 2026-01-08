@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8" />
+  <title>Auditoria à Contratação Pública</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/plugin/customParseFormat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+  <script src="config.js"></script>
+  <script src="sharepoint.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Auditoria à Contratação Pública</h1>
+    <p>Carregue os três ficheiros CSV exportados do BASE.gov (anos n, n-1 e n-2) e clique em "Gerar Relatório".</p>
+
+    <form id="audit-form">
+      <div class="field-group">
+        <label for="auditor-name">Auditor responsável</label>
+        <input type="text" id="auditor-name" placeholder="Nome do auditor" required />
+      </div>
+      <div class="field-group">
+        <label for="file-n">Ano n (mais recente)</label>
+        <input type="file" id="file-n" accept=".csv" required />
+      </div>
+      <div class="field-group">
+        <label for="file-n1">Ano n-1</label>
+        <input type="file" id="file-n1" accept=".csv" required />
+      </div>
+      <div class="field-group">
+        <label for="file-n2">Ano n-2</label>
+        <input type="file" id="file-n2" accept=".csv" required />
+      </div>
+
+      <div class="field-group" style="grid-column: 1 / -1;">
+        <div style="padding: 1.5rem; background: linear-gradient(135deg, #f0f4ff 0%, #f3e5f5 100%); border-radius: 12px; border-left: 4px solid #667eea;">
+          <h3 style="margin-top: 0; color: #667eea; font-size: 1.2rem;">Cruzamento de Dados (Opcional)</h3>
+          <p style="margin-bottom: 1rem; color: #555; font-size: 0.9rem;">Carregue os ficheiros de e-faturas e extractos contabilísticos para fazer o cruzamento com os dados do Base.gov.</p>
+          
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+            <div class="field-group" style="margin-bottom: 0;">
+              <label for="file-efaturas" style="font-size: 0.9rem;">📊 E-faturas (CSV/Excel)</label>
+              <input type="file" id="file-efaturas" accept=".csv,.xlsx,.xls" />
+              <small style="color: #666; font-size: 0.85rem; margin-top: 0.25rem; display: block;">Faturas e notas de crédito da Autoridade Tributária</small>
+            </div>
+            
+            <div class="field-group" style="margin-bottom: 0;">
+              <label for="file-extractos" style="font-size: 0.9rem;">📈 Extractos Contabilísticos (CSV/Excel)</label>
+              <input type="file" id="file-extractos" accept=".csv,.xlsx,.xls" />
+              <small style="color: #666; font-size: 0.85rem; margin-top: 0.25rem; display: block;">Movimentos a crédito (faturas) e a débito (pagamentos)</small>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions" style="grid-column: 1 / -1;">
+        <button type="button" id="preview-btn">Pré-visualizar Relatório</button>
+        <button type="button" id="analysis-btn" style="display: none;">Análise de Dados</button>
+        <button type="button" id="generate-btn" style="display: none;">Gerar Relatório PDF</button>
+        <button type="button" id="history-btn">Histórico de Auditorias</button>
+      </div>
+    </form>
+
+    <div id="status" role="status"></div>
+
+    <!-- Análise de Dados -->
+    <div id="data-analysis" class="hidden">
+      <div class="analysis-header">
+        <h2>Análise de Dados</h2>
+        <button type="button" id="close-analysis" aria-label="Fechar análise">×</button>
+      </div>
+      <div class="analysis-controls">
+        <div class="control-group">
+          <label for="search-input">Pesquisar:</label>
+          <input type="text" id="search-input" placeholder="Objeto, entidade, procedimento..." />
+        </div>
+        <div class="control-group">
+          <label for="filter-entity">Entidade Adjudicatária:</label>
+          <select id="filter-entity">
+            <option value="">Todas</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="filter-section">Tipo de Infração:</label>
+          <select id="filter-section">
+            <option value="">Todas</option>
+            <option value="limit">Excederam limite</option>
+            <option value="F">Especializada excecionada</option>
+            <option value="G">Concursos urgentes</option>
+            <option value="H">Acordo Quadro</option>
+            <option value="I">Exceções revisão</option>
+            <option value="J">Tribunal de Contas</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="filter-min-value">Valor mínimo (€):</label>
+          <input type="number" id="filter-min-value" placeholder="0" min="0" />
+        </div>
+        <div class="control-group">
+          <button type="button" id="export-btn">Exportar para Excel</button>
+          <button type="button" id="reset-filters-btn">Limpar Filtros</button>
+        </div>
+      </div>
+      <div class="table-container">
+        <table id="data-table">
+          <thead>
+            <tr>
+              <th data-sort="rule">Regra <span class="sort-icon">↕</span></th>
+              <th data-sort="objeto">Objeto <span class="sort-icon">↕</span></th>
+              <th data-sort="adjudicataria">Adjudicatária <span class="sort-icon">↕</span></th>
+              <th data-sort="precoContratual">Preço <span class="sort-icon">↕</span></th>
+              <th data-sort="dataCelebracao">Data <span class="sort-icon">↕</span></th>
+              <th data-sort="tipoProcedimento">Procedimento <span class="sort-icon">↕</span></th>
+              <th>Detalhes</th>
+            </tr>
+          </thead>
+          <tbody id="table-body">
+          </tbody>
+        </table>
+      </div>
+      <div class="table-footer">
+        <div class="table-info">
+          <span id="table-info">A mostrar 0 de 0 contratos</span>
+        </div>
+        <div class="table-pagination">
+          <label for="page-size">Por página:</label>
+          <select id="page-size">
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="0">Todos</option>
+          </select>
+          <div class="pagination-buttons">
+            <button type="button" id="prev-page" disabled>Anterior</button>
+            <span id="page-info">Página 1</span>
+            <button type="button" id="next-page" disabled>Próxima</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Histórico de Auditorias -->
+    <div id="audit-history" class="hidden">
+      <div class="history-header">
+        <h2>Histórico de Auditorias</h2>
+        <button type="button" id="close-history" aria-label="Fechar histórico">×</button>
+      </div>
+      <div class="history-content">
+        <div id="history-list"></div>
+        <div id="history-empty" class="history-empty">
+          <p>Nenhuma auditoria guardada ainda.</p>
+          <p class="history-hint">As auditorias são guardadas automaticamente quando geras um relatório PDF.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preview do Relatório -->
+    <div id="report-preview" class="hidden">
+      <div class="preview-header">
+        <h2>Pré-visualização do Relatório</h2>
+        <button type="button" id="close-preview" aria-label="Fechar preview">×</button>
+      </div>
+      <div id="preview-content"></div>
+      <div class="preview-actions">
+        <button type="button" id="confirm-generate-btn">Gerar PDF</button>
+        <button type="button" id="cancel-preview-btn">Cancelar</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Chatbot -->
+  <div id="chatbot-container">
+    <button id="chatbot-toggle" aria-label="Abrir assistente">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+      </svg>
+    </button>
+    <div id="chatbot-window" class="hidden">
+      <div class="chatbot-header">
+        <h3>Assistente de Auditoria</h3>
+        <button id="chatbot-close" aria-label="Fechar">×</button>
+      </div>
+      <div id="chatbot-messages"></div>
+      <div class="chatbot-input-container">
+        <input type="text" id="chatbot-input" placeholder="Faça uma pergunta sobre as regras de auditoria..." />
+        <button id="chatbot-send">Enviar</button>
+      </div>
+      <div class="chatbot-api-key-container" id="api-key-container">
+        <label for="api-key-input">Chave API OpenAI (configuração):</label>
+        <input type="password" id="api-key-input" placeholder="sk-..." />
+        <small>Configure uma vez no ficheiro config.js para todos os utilizadores</small>
+        <button type="button" id="save-config-btn" style="margin-top: 0.5rem; padding: 0.4rem 0.8rem; font-size: 0.85rem;">Guardar Configuração</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
